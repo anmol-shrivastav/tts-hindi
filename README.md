@@ -145,7 +145,9 @@ This writes an audio file named output.wav in the project root.
 ## Notes
 
 - The project is designed for lightweight, local Hindi TTS workflows.
-- It is ideal for demos, prototypes, web apps, and simple voice assistant features.
+- The stream-based TTS route can start generating audio in under 1 second, making it ideal for real-time and low-latency applications.
+- The standard TTS route processes the entire input text first and returns a complete `.wav` file, so the response time increases with the length of the text.
+- It is ideal for web apps, fast real-time Text-to-Speech conversation applications, and lightweight voice assistant features.
 - Additional voice models can be added by placing the corresponding ONNX files into the models folder and updating the voice selection.
 
 ## License
