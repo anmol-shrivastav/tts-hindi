@@ -1,0 +1,131 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Piper TTS Engine</title>
+    <script src="https://cdn.jsdelivr.net/npm/@tailwindcss/browser@4"></script>
+</head>
+<body class="bg-slate-50 min-h-screen flex items-center justify-center p-4 font-sans">
+
+    <div class="bg-white p-8 rounded-2xl shadow-xl max-w-lg w-full border border-slate-100">
+        <div class="text-center mb-6">
+            <h1 class="text-3xl font-extrabold text-slate-800 tracking-tight">Piper TTS Engine</h1>
+            <p class="text-sm text-slate-500 mt-1">Configure speed and pitch properties for speech generation</p>
+        </div>
+
+        <div class="space-y-5">
+            <div>
+                <label for="text-input" class="block text-sm font-semibold text-slate-700 mb-2">Enter Text:</label>
+                <textarea 
+                    id="text-input" 
+                    rows="3" 
+                    class="w-full px-4 py-3 border border-slate-300 rounded-xl focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 outline-none transition text-slate-700 placeholder-slate-400"
+                    placeholder="E.g., Sab kaisa chal raha hai dosto?"
+                >Suno dosto! Ab aap meri aawaz ki speed aur pitch dono ko badal sakte ho.</textarea>
+            </div>
+
+            <div class="grid grid-cols-1 sm:grid-cols-2 gap-4 bg-slate-50 p-4 rounded-xl border border-slate-100">
+                <div>
+                    <div class="flex justify-between items-center mb-1">
+                        <label for="speed" class="text-xs font-bold text-slate-700 uppercase tracking-wider">Speed</label>
+                        <span id="speed-val" class="text-xs bg-indigo-100 text-indigo-700 px-2 py-0.5 rounded-md font-semibold">1.0x</span>
+                    </div>
+                    <input 
+                        type="range" id="speed" min="0.5" max="2.0" step="0.1" value="1.0" 
+                        class="w-full accent-indigo-600 h-2 bg-slate-200 rounded-lg appearance-none cursor-pointer"
+                        oninput="document.getElementById('speed-val').innerText = this.value + 'x'"
+                    >
+                </div>
+
+                <div>
+                    <div class="flex justify-between items-center mb-1">
+                        <label for="pitch" class="text-xs font-bold text-slate-700 uppercase tracking-wider">Pitch Scale</label>
+                        <span id="pitch-val" class="text-xs bg-indigo-100 text-indigo-700 px-2 py-0.5 rounded-md font-semibold">0.667</span>
+                    </div>
+                    <input 
+                        type="range" id="pitch" min="0.1" max="1.5" step="0.05" value="0.667" 
+                        class="w-full accent-indigo-600 h-2 bg-slate-200 rounded-lg appearance-none cursor-pointer"
+                        oninput="document.getElementById('pitch-val').innerText = this.value"
+                    >
+                </div>
+            </div>
+
+            <button 
+                id="generate-btn"
+                onclick="generateSpeech()"
+                class="w-full bg-indigo-600 hover:bg-indigo-700 text-white font-medium py-3 px-4 rounded-xl transition duration-200 flex items-center justify-center space-x-2 cursor-pointer shadow-md shadow-indigo-100"
+            >
+                <span id="btn-text">Generate Speech</span>
+                <svg id="loading-spinner" class="hidden animate-spin h-5 w-5 text-white" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                    <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
+                    <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                </svg>
+            </button>
+        </div>
+
+        <div id="audio-container" class="mt-6 pt-6 border-t border-slate-100 hidden">
+            <h3 class="text-sm font-semibold text-slate-700 mb-3">Generated Audio:</h3>
+            <audio id="audio-player" controls class="w-full rounded-lg bg-slate-100"></audio>
+        </div>
+    </div>
+
+    <script>
+        const API_URL = 'http://localhost:8000/api/tts';
+
+        async function generateSpeech() {
+            const textInput = document.getElementById('text-input').value.trim();
+            const speedInput = document.getElementById('speed').value;
+            const pitchInput = document.getElementById('pitch').value;
+
+            const generateBtn = document.getElementById('generate-btn');
+            const btnText = document.getElementById('btn-text');
+            const spinner = document.getElementById('loading-spinner');
+            const audioContainer = document.getElementById('audio-container');
+            const audioPlayer = document.getElementById('audio-player');
+
+            if (!textInput) {
+                alert('Please enter some text first!');
+                return;
+            }
+
+            generateBtn.disabled = true;
+            generateBtn.classList.add('opacity-75', 'cursor-not-allowed');
+            btnText.innerText = 'Synthesizing voice parameters...';
+            spinner.classList.remove('hidden');
+            audioContainer.classList.add('hidden');
+
+            try {
+                const response = await fetch(API_URL, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    // Send text, speed, and pitch parameters
+                    body: JSON.stringify({ 
+                        text: textInput, 
+                        speed: parseFloat(speedInput), 
+                        pitch: parseFloat(pitchInput) 
+                    })
+                });
+
+                if (!response.ok) throw new Error('Failed to communicate with Piper binary backend.');
+
+                const audioBlob = await response.blob();
+                const audioUrl = URL.createObjectURL(audioBlob);
+
+                audioPlayer.src = audioUrl;
+                audioContainer.classList.remove('hidden');
+                audioPlayer.play();
+
+            } catch (error) {
+                console.error(error);
+                alert(`Error: ${error.message}`);
+            } finally {
+                generateBtn.disabled = false;
+                generateBtn.classList.remove('opacity-75', 'cursor-not-allowed');
+                btnText.innerText = 'Generate Speech';
+                spinner.classList.add('hidden');
+            }
+        }
+    </script>
+</body>
+</html>

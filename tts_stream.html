@@ -1,0 +1,150 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Real-Time Piper TTS Stream</title>
+    <script src="https://cdn.jsdelivr.net/npm/@tailwindcss/browser@4"></script>
+</head>
+
+<body class="bg-slate-900 min-h-screen flex items-center justify-center p-4 font-sans text-slate-100">
+
+    <div class="bg-slate-800 p-8 rounded-2xl shadow-2xl max-w-lg w-full border border-slate-700">
+        <div class="text-center mb-6">
+            <h1 class="text-3xl font-extrabold text-white tracking-tight flex items-center justify-center gap-2">
+                <span class="flex h-3 w-3 relative">
+                    <span
+                        class="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span>
+                    <span class="relative inline-flex rounded-full h-3 w-3 bg-emerald-500"></span>
+                </span>
+                Real-Time Streaming TTS
+            </h1>
+            <p class="text-sm text-slate-400 mt-1">Fixed audio synchronization timeline</p>
+        </div>
+
+        <div class="space-y-5">
+            <div>
+                <label for="text-input" class="block text-sm font-semibold text-slate-300 mb-2">Type your text:</label>
+                <textarea id="text-input" rows="3"
+                    class="w-full px-4 py-3 bg-slate-900 border border-slate-700 rounded-xl focus:ring-2 focus:ring-emerald-500 outline-none transition text-slate-200">Arrey waah! Ab toh bina overlap kiye bilkul saaf aur clear aawaz aa rahi hai.</textarea>
+            </div>
+
+            <div class="grid grid-cols-2 gap-4 bg-slate-900/50 p-4 rounded-xl border border-slate-700/50">
+                <div>
+                    <div class="flex justify-between items-center mb-1">
+                        <label class="text-xs font-bold text-slate-400 uppercase">Speed</label>
+                        <span id="speed-val"
+                            class="text-xs bg-emerald-500/10 text-emerald-400 px-2 py-0.5 rounded font-semibold">1.2x</span>
+                    </div>
+                    <input type="range" id="speed" min="0.5" max="1.8" step="0.1" value="1.2"
+                        class="w-full accent-emerald-500 cursor-pointer"
+                        oninput="document.getElementById('speed-val').innerText = this.value + 'x'">
+                </div>
+                <div>
+                    <div class="flex justify-between items-center mb-1">
+                        <label class="text-xs font-bold text-slate-400 uppercase">Pitch variation</label>
+                        <span id="pitch-val"
+                            class="text-xs bg-emerald-500/10 text-emerald-400 px-2 py-0.5 rounded font-semibold">0.1</span>
+                    </div>
+                    <input type="range" id="pitch" min="0.1" max="1.2" step="0.05" value="0.1"
+                        class="w-full accent-emerald-500 cursor-pointer"
+                        oninput="document.getElementById('pitch-val').innerText = this.value">
+                </div>
+            </div>
+
+            <button id="stream-btn" onclick="startStreaming()"
+                class="w-full bg-emerald-600 hover:bg-emerald-500 text-white font-semibold py-3 px-4 rounded-xl transition flex items-center justify-center space-x-2 cursor-pointer shadow-lg shadow-emerald-900/20">
+                <span>Stream Voice Instantly</span>
+            </button>
+        </div>
+    </div>
+
+    <script>
+        const API_URL = 'http://localhost:8000/api/tts-stream';
+        let audioCtx = null;
+        let nextStartTime = 0; 
+
+        async function startStreaming() {
+            const text = document.getElementById('text-input').value.trim();
+            if (!text) return alert('Please input text');
+
+            if (!audioCtx) {
+                audioCtx = new (window.AudioContext || window.webkitAudioContext)({ sampleRate: 22050 });
+            } else if (audioCtx.state === 'suspended') {
+                await audioCtx.resume();
+            }
+
+            // Sync the clock timeline right before we start the network stream
+            nextStartTime = audioCtx.currentTime;
+
+            try {
+                const response = await fetch(API_URL, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        text,
+                        speed: parseFloat(document.getElementById('speed').value),
+                        pitch: parseFloat(document.getElementById('pitch').value)
+                    })
+                });
+
+                if (!response.ok) throw new Error('Streaming failed');
+
+                const reader = response.body.getReader();
+                let leftover = new Uint8Array(0); 
+
+                while (true) {
+                    const { done, value } = await reader.read();
+                    if (done) break;
+
+                    let combined = new Uint8Array(leftover.length + value.length);
+                    combined.set(leftover);
+                    combined.set(value, leftover.length);
+
+                    const samplesCount = Math.floor(combined.length / 2);
+                    const validBytesCount = samplesCount * 2;
+
+                    if (samplesCount > 0) {
+                        // Create a clean copy of the memory view buffer chunk
+                        const pcmData = new Int16Array(combined.buffer.slice(0, validBytesCount));
+                        playPCMChunk(pcmData);
+                    }
+
+                    leftover = combined.slice(validBytesCount);
+                }
+
+            } catch (err) {
+                console.error('Streaming error:', err);
+            }
+        }
+
+        function playPCMChunk(pcm16Array) {
+            const length = pcm16Array.length;
+            const audioBuffer = audioCtx.createBuffer(1, length, 22050);
+            const channelData = audioBuffer.getChannelData(0);
+
+            for (let i = 0; i < length; i++) {
+                channelData[i] = pcm16Array[i] / 32768.0;
+            }
+
+            const bufferSource = audioCtx.createBufferSource();
+            bufferSource.buffer = audioBuffer;
+            bufferSource.connect(audioCtx.destination);
+
+            // --- THE FIX FOR CLASHING AUDIO ---
+            // If the next planned execution time has slipped behind the current actual hardware playback clock,
+            // we immediately snap it forward to the present moment. This prevents overlapping audio stacks.
+            if (nextStartTime < audioCtx.currentTime) {
+                nextStartTime = audioCtx.currentTime;
+            }
+
+            bufferSource.start(nextStartTime);
+            
+            // Increment the clock cleanly by the length of the audio chunk duration
+            nextStartTime += audioBuffer.duration;
+        }
+    </script>
+</body>
+
+</html>
